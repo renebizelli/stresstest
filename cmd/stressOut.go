@@ -7,9 +7,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
-	"time"
 
-	"github.com/renebizelli/stresstest/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -28,11 +26,6 @@ to quickly create a Cobra application.`,
 		url, _ := cmd.Flags().GetString("url")
 		requests, _ := cmd.Flags().GetInt("requests")
 		concurrency, _ := cmd.Flags().GetInt("concurrency")
-
-		fmt.Printf("\nParameters")
-		fmt.Printf("\n- url: %s", url)
-		fmt.Printf("\n- requests: %d", requests)
-		fmt.Printf("\n- concurrency: %d", concurrency)
 
 		stressOut(url, requests, concurrency)
 	},
@@ -54,15 +47,9 @@ var requestCounter int32
 
 func stressOut(url string, requests int, concurrency int) {
 
-	fmt.Println(utils.BlueText("\n\n\n***************************************"))
-	fmt.Println(utils.BlueText("Stress test initializing"))
-	fmt.Println(utils.BlueText("***************************************"))
-	fmt.Printf("\nParameters:")
-	fmt.Printf("\n- url: %s", url)
-	fmt.Printf("\n- requests: %d", requests)
-	fmt.Printf("\n- concurrency: %d", concurrency)
+	report := &Report{}
 
-	//http := NewHttpClient((url))
+	http := NewHttpClient(url)
 
 	if concurrency > requests {
 		requests = concurrency
@@ -72,14 +59,16 @@ func stressOut(url string, requests int, concurrency int) {
 
 	results := map[int]int{}
 
-	t := time.Now()
+	report.Start()
 
-	for requests > 0 {
+	control := requests
+
+	for control > 0 {
 
 		loop := concurrency
 
-		if concurrency > requests {
-			loop = requests
+		if concurrency > control {
+			loop = control
 		}
 
 		ch := make(chan int, loop)
@@ -87,12 +76,12 @@ func stressOut(url string, requests int, concurrency int) {
 		ws.Add(loop)
 
 		for i := 0; i < loop; i++ {
-			go action(ch, &ws)
+			go action(http, report, ch, &ws)
 		}
 
 		ws.Wait()
 
-		for i := 0; i < loop; i++ {
+		for range loop {
 			r := <-ch
 			if v, ok := results[r]; !ok {
 				results[r] = 1
@@ -101,36 +90,53 @@ func stressOut(url string, requests int, concurrency int) {
 			}
 		}
 
-		requests -= concurrency
+		control -= concurrency
 	}
 
-	fmt.Println(utils.GreenText("\n\n***************************************"))
-	fmt.Println(utils.GreenText("Stress test results"))
-	fmt.Println(utils.GreenText("***************************************"))
+	report.Stop()
 
+	report.AddBlueTopic(
+		"Stress test initializing",
+		"Parameters",
+		[]string{
+			fmt.Sprintf("url: %s", url),
+			fmt.Sprintf("requests: %d", requests),
+			fmt.Sprintf("concurrency: %d", concurrency),
+		},
+	)
+
+	itemsOfResults := []string{}
 	for v, x := range results {
-		fmt.Printf("\n- HttpStatus %d: %d returns", v, x)
+		itemsOfResults = append(itemsOfResults, fmt.Sprintf("HttpStatus %d: %d returns", v, x))
 	}
 
-	//http.Get()
+	report.AddGreenTopic(
+		"Stress test results",
+		"",
+		itemsOfResults,
+	)
 
-	fmt.Printf("\n\n %s %d requests", utils.YellowText("Total of requests:"), requestCounter)
-	fmt.Printf("\n\n %s: %v", utils.YellowText("Operation time"), time.Since(t))
+	report.AddYellowTopic(
+		"Test summary",
+		"",
+		[]string{
+			fmt.Sprintf("Total of requests: %d requests", report.GetRequestCounter()),
+			fmt.Sprintf("Operation time: %v", report.GetOperationTime()),
+		},
+	)
 
-	fmt.Println(utils.BlueText("\n\nStress test completed\n"))
-
+	report.Print()
 }
 
-func action(ch chan<- int, ws *sync.WaitGroup) {
+func action(action ActionInterface, report *Report, ch chan<- int, ws *sync.WaitGroup) {
+
+	result := action.Get()
+
+	report.RequestCounterIncrease()
 
 	atomic.AddInt32(&requestCounter, 1)
 
-	if requestCounter%2 == 0 {
-		ch <- 0
-	} else {
-		ch <- 1
-	}
+	ch <- result
 
 	ws.Done()
-
 }
