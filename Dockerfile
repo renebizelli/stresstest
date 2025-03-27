@@ -11,8 +11,8 @@ FROM scratch
 
 COPY --from=builder /app/stresstest .
 
+ENTRYPOINT [ "./stresstest", "stressOut"]
+CMD []
 
-ENTRYPOINT [ "./stresstest"]
-CMD ["stressOut", "--url=${url}","default_arg2","default_arg3"]
 
 #--url=www --requests=100 --concurrency=10
